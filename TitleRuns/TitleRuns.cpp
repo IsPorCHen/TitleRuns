@@ -1,13 +1,12 @@
 ﻿#define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
 #include <stdio.h>
-#include <conio.h>
 #include <vector>
 #include <locale>
 #include <iostream>
 #include <ctime>
 
-#define TRACK_LENGTH 50
+#define TRACK_LENGTH 20
 
 using namespace std;
 
@@ -19,30 +18,36 @@ struct Turtle {
 HANDLE* hThreads = nullptr;
 vector<Turtle> turtles;
 FILE* logFile;
-volatile bool raceFinished = false;
-HANDLE raceFinishedEvent;
+HANDLE raceMutex;
+int finishedTurtles = 0;
+int winnerId = -1;
 
 DWORD WINAPI TurtleRace(LPVOID param) {
     Turtle* turtle = (Turtle*)param;
 
-    while (!raceFinished) {
+    while (true) {
         srand(time(0) + turtle->id);
-
         int step = rand() % 3;
         turtle->position += step;
 
         if (turtle->position >= TRACK_LENGTH) {
             turtle->position = TRACK_LENGTH;
-            raceFinished = true;
-            SetEvent(raceFinishedEvent);
+
+            WaitForSingleObject(raceMutex, INFINITE);
+
+            if (winnerId == -1) {
+                winnerId = turtle->id;
+            }
+            finishedTurtles++;
+            ReleaseMutex(raceMutex);
+
+            cout << "Черепаха " << turtle->id << " финишировала!" << endl;
+            fprintf(logFile, "Черепаха %d финишировала!\n", turtle->id);
+            break;
         }
 
         cout << "Черепаха " << turtle->id << " -> Позиция: " << turtle->position << endl;
         fprintf(logFile, "Черепаха %d -> Позиция: %d\n", turtle->id, turtle->position);
-        if (raceFinished) {
-            cout << "Черепаха " << turtle->id << " выиграла гонку!" << endl;
-            fprintf(logFile, "Черепаха %d выиграла гонку!\n", turtle->id);
-        }
 
         Sleep(2000);
     }
@@ -52,7 +57,6 @@ DWORD WINAPI TurtleRace(LPVOID param) {
 
 int main() {
     setlocale(0, "rus");
-
     srand(time(0));
 
     int countTurtles = 0;
@@ -78,14 +82,24 @@ int main() {
     cout << "Старт черепашьих бегов!" << endl;
     fprintf(logFile, "Старт черепашьих бегов!\n");
 
-    raceFinishedEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    raceMutex = CreateMutex(NULL, FALSE, NULL);
 
     for (int i = 0; i < countTurtles; i++) {
         turtles[i] = { i, 0 };
         hThreads[i] = CreateThread(NULL, 0, TurtleRace, &turtles[i], 0, NULL);
     }
 
-    WaitForSingleObject(raceFinishedEvent, INFINITE);
+    while (true) {
+        WaitForSingleObject(raceMutex, INFINITE);
+        if (finishedTurtles == countTurtles) {
+            ReleaseMutex(raceMutex);
+            break;
+        }
+        ReleaseMutex(raceMutex);
+        Sleep(500);
+    }
+
+    WaitForMultipleObjects(countTurtles, hThreads, TRUE, INFINITE);
 
     for (int i = 0; i < countTurtles; i++) {
         CloseHandle(hThreads[i]);
@@ -93,10 +107,15 @@ int main() {
 
     cout << "Гонка завершена!" << endl;
     fprintf(logFile, "Гонка завершена!\n");
-    fclose(logFile);
 
+    if (winnerId != -1) {
+        cout << "Победитель: Черепаха " << winnerId << "!" << endl;
+        fprintf(logFile, "Победитель: Черепаха %d!\n", winnerId);
+    }
+
+    fclose(logFile);
     delete[] hThreads;
-    CloseHandle(raceFinishedEvent);
+    CloseHandle(raceMutex);
 
     return 0;
 }
