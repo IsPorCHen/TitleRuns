@@ -17,10 +17,24 @@ struct Turtle {
 
 HANDLE* hThreads = nullptr;
 vector<Turtle> turtles;
+char track[TRACK_LENGTH + 1];
 FILE* logFile;
 HANDLE raceMutex;
 int finishedTurtles = 0;
 int winnerId = -1;
+
+void UpdateTrack() {
+    for (int i = 0; i < TRACK_LENGTH; i++) {
+        track[i] = '-';
+    }
+
+    for (const auto& turtle : turtles) {
+        if (turtle.position < TRACK_LENGTH)
+            track[turtle.position] = '0' + turtle.id;
+    }
+
+    track[TRACK_LENGTH] = '\0';
+}
 
 DWORD WINAPI TurtleRace(LPVOID param) {
     Turtle* turtle = (Turtle*)param;
@@ -28,6 +42,12 @@ DWORD WINAPI TurtleRace(LPVOID param) {
     while (true) {
         srand(time(0) + turtle->id);
         int step = rand() % 3;
+        WaitForSingleObject(raceMutex, INFINITE);
+        if (turtle->position < TRACK_LENGTH) {
+            track[turtle->position] = '-';
+        }
+        ReleaseMutex(raceMutex);
+
         turtle->position += step;
 
         if (turtle->position >= TRACK_LENGTH) {
@@ -45,6 +65,10 @@ DWORD WINAPI TurtleRace(LPVOID param) {
             fprintf(logFile, "Черепаха %d финишировала!\n", turtle->id);
             break;
         }
+
+        WaitForSingleObject(raceMutex, INFINITE);
+        UpdateTrack();
+        ReleaseMutex(raceMutex);
 
         cout << "Черепаха " << turtle->id << " -> Позиция: " << turtle->position << endl;
         fprintf(logFile, "Черепаха %d -> Позиция: %d\n", turtle->id, turtle->position);
@@ -81,6 +105,11 @@ int main() {
 
     cout << "Старт черепашьих бегов!" << endl;
     fprintf(logFile, "Старт черепашьих бегов!\n");
+
+    for (int i = 0; i < TRACK_LENGTH; i++) {
+        track[i] = '-';
+    }
+    track[TRACK_LENGTH] = '\0';
 
     raceMutex = CreateMutex(NULL, FALSE, NULL);
 
